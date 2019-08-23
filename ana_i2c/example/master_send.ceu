@@ -1,4 +1,4 @@
-#include "_ana_i2c.ceu"
+#include "../_ana_i2c.ceu"
 
 // output (on/off v, byte? address) I2C do
 //     if address? then

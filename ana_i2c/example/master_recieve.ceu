@@ -1,4 +1,4 @@
-#include "_ana_i2c.ceu"
+#include "../_ana_i2c.ceu"
 
 _Serial.begin(9600);
 var byte temp = _;

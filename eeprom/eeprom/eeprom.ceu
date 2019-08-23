@@ -6,7 +6,6 @@
 
 var[20] byte sub_addr = [0];
 var[1] byte inner_addr = [0];
-var[70] byte str = [].."Following the rules can make the world in order!";
 var[255*] byte eeprom_tx;
 var[255] byte eeprom_rx;
 emit I2C(on, _);

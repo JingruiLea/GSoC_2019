@@ -1,5 +1,5 @@
 # I2C 
-This driver can be used to communicate via TWI between microcontrollers **as master only**, compatible with I2C.
+This driver can be used to communicate via TWI **as master only**, compatible with I2C.
 
 ## Pins
 
