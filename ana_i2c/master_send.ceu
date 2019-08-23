@@ -1,0 +1,55 @@
+#include "_ana_i2c.ceu"
+
+// output (on/off v, byte? address) I2C do
+//     if address? then
+//         outer.i2c_addr! = address!;
+//     end
+//     if v then
+//         await I2C_Start();
+//     else
+//         await I2C_Stop();
+//     end
+// end
+
+_Serial.begin(9600);
+var byte temp = _;
+
+// loop do
+//     await I2C_Start();
+//     await I2C_Address(8, true);
+//     await I2C_Read_Ack();
+
+//     temp = await I2C_Read();
+//     _Serial.println(temp);
+//     _Serial.flush();
+//     await I2C_Ack();
+
+//     temp = await I2C_Read();
+//     _Serial.println(temp);
+//     _Serial.flush();
+//     await I2C_Nack();
+//     await I2C_Stop();
+//     await 1s;
+// end
+
+// loop do
+//     await I2C_Start();
+//     var[20] byte str = [];
+//     await I2C_Master_Receive(&str, 8, 2);
+//     await I2C_Stop();
+//     var u8 i;
+//     loop i in [1-> $str as u8] do
+//         _Serial.println(str[i-1]);
+//         _Serial.flush();
+//     end
+//     await 1s;
+// end
+
+
+loop do
+    await I2C_Start();
+    var[5] byte buf = [0,1,2,3,4];
+    await I2C_Master_Send(&buf, 8);
+    await I2C_Stop();
+    await 1s;
+end

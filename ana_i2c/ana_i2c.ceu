@@ -1,0 +1,28 @@
+#define I2C_BUF_MAX 20 // maximum buffer length
+
+output (on/off,u8?) I2C; // on/off of I2C with optional variable address
+
+// code/call I2C_Set_Clock (var u32 clock) -> none;
+
+// //master API
+code/await I2C_Master_Receive(var&[] byte buf, var byte address, var usize len) -> bool;
+code/await I2C_Master_Send(var&[] byte buf, var byte address) -> bool;
+
+// //slave API
+// input none I2C_SLAVE_RECEIVE_REQUESTED;
+// code/await I2C_Slave_Receive(var&[] byte buf) -> bool;
+
+// input none I2C_SLAVE_SEND_REQUESTED;
+// code/await I2C_Slave_Send(var&[] byte buf) -> bool;
+
+// var u8 i2c_errno = _;
+
+//private?
+code/await I2C_Start(none) -> none;
+code/await I2C_Stop(none) -> none;
+code/await I2C_Ack(none) -> none;
+code/await I2C_Nack(none) -> none;
+code/await I2C_Read(none) -> byte;
+code/await I2C_Write(var byte b) -> none;
+code/await I2C_Address(var byte addr, var bool read) -> none;
+code/await I2C_Read_Ack(none) -> bool;

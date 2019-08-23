@@ -1,0 +1,15 @@
+
+_Serial.begin(9600);
+
+code/await Fun(var&[] byte buf) -> none do
+    _Serial.println($buf);
+    _Serial.flush();
+    buf[0] = 0;
+end
+
+var[8] byte b = [0,1,2,3,4,5,6,7,8]; 
+loop do
+    await Fun(&b);
+    _Serial.println($b);
+    _Serial.flush();
+end

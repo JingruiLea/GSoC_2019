@@ -1,0 +1,68 @@
+var byte rc522_CommandReg				= 0x01 << 1;	// starts and stops command execution
+var byte rc522_ComIEnReg				= 0x02 << 1;	// enable and disable interrupt request control bits
+var byte rc522_DivIEnReg				= 0x03 << 1;	// enable and disable interrupt request control bits
+var byte rc522_ComIrqReg				= 0x04 << 1;	// interrupt request bits
+var byte rc522_DivIrqReg				= 0x05 << 1;	// interrupt request bits
+var byte rc522_ErrorReg				= 0x06 << 1;	// error bits showing the error status of the last command executed 
+var byte rc522_Status1Reg				= 0x07 << 1;	// communication status bits
+var byte rc522_Status2Reg				= 0x08 << 1;	// receiver and transmitter status bits
+var byte rc522_FIFODataReg				= 0x09 << 1;	// input and output of 64 byte FIFO buffer
+var byte rc522_FIFOLevelReg			= 0x0A << 1;	// number of bytes stored in the FIFO buffer
+var byte rc522_WaterLevelReg			= 0x0B << 1;	// level for FIFO underflow and overflow warning
+var byte rc522_ControlReg				= 0x0C << 1;	// miscellaneous control registers
+var byte rc522_BitFramingReg			= 0x0D << 1;	// adjustments for bit-oriented frames
+var byte rc522_CollReg					= 0x0E << 1;	// bit position of the first bit-collision detected on the RF interface
+//						  0x0F			// reserved for future use
+// Page 1: Command
+// 						  0x10			// reserved for future use
+var byte rc522_ModeReg					= 0x11 << 1;	// defines general modes for transmitting and receiving 
+var byte rc522_TxModeReg				= 0x12 << 1;	// defines transmission data rate and framing
+var byte rc522_RxModeReg				= 0x13 << 1;	// defines reception data rate and framing
+var byte rc522_TxControlReg			= 0x14 << 1;	// controls the logical behavior of the antenna driver pins TX1 and TX2
+var byte rc522_TxASKReg				= 0x15 << 1;	// controls the setting of the transmission modulation
+var byte rc522_TxSelReg				= 0x16 << 1;	// selects the internal sources for the antenna driver
+var byte rc522_RxSelReg				= 0x17 << 1;	// selects internal receiver settings
+var byte rc522_RxThresholdReg			= 0x18 << 1;	// selects thresholds for the bit decoder
+var byte rc522_DemodReg				= 0x19 << 1;	// defines demodulator settings
+// 						  0x1A			// reserved for future use
+// 						  0x1B			// reserved for future use
+var byte rc522_MfTxReg					= 0x1C << 1;	// controls some MIFARE communication transmit parameters
+var byte rc522_MfRxReg					= 0x1D << 1;	// controls some MIFARE communication receive parameters
+// 						  0x1E			// reserved for future use
+var byte rc522_SerialSpeedReg			= 0x1F << 1;	// selects the speed of the serial UART interface
+
+// Page 2: Configuration
+// 						  0x20			// reserved for future use
+var byte rc522_CRCResultRegH			= 0x21 << 1;	// shows the MSB and LSB values of the CRC calculation
+var byte rc522_CRCResultRegL			= 0x22 << 1;
+// 						  0x23			// reserved for future use
+var byte rc522_ModWidthReg				= 0x24 << 1;	// controls the ModWidth setting?
+// 						  0x25			// reserved for future use
+var byte rc522_RFCfgReg				= 0x26 << 1;	// configures the receiver gain
+var byte rc522_GsNReg					= 0x27 << 1;	// selects the conductance of the antenna driver pins TX1 and TX2 for modulation 
+var byte rc522_CWGsPReg				= 0x28 << 1;	// defines the conductance of the p-driver output during periods of no modulation
+var byte rc522_ModGsPReg				= 0x29 << 1;	// defines the conductance of the p-driver output during periods of modulation
+var byte rc522_TModeReg				= 0x2A << 1;	// defines settings for the internal timer
+var byte rc522_TPrescalerReg			= 0x2B << 1;	// the lower 8 bits of the TPrescaler value. The 4 high bits are in TModeReg.
+var byte rc522_TReloadRegH				= 0x2C << 1;	// defines the 16-bit timer reload value
+var byte rc522_TReloadRegL				= 0x2D << 1;
+var byte rc522_TCounterValueRegH		= 0x2E << 1;	// shows the 16-bit timer value
+var byte rc522_TCounterValueRegL		= 0x2F << 1;
+
+// Page 3: Test Registers
+// 						  0x30			// reserved for future use
+var byte rc522_TestSel1Reg				= 0x31 << 1;	// general test signal configuration
+var byte rc522_TestSel2Reg				= 0x32 << 1;	// general test signal configuration
+var byte rc522_TestPinEnReg			= 0x33 << 1;	// enables pin output driver on pins D1 to D7
+var byte rc522_TestPinValueReg			= 0x34 << 1;	// defines the values for D1 to D7 when it is used as an I/O bus
+var byte rc522_TestBusReg				= 0x35 << 1;	// shows the status of the internal test bus
+var byte rc522_AutoTestReg				= 0x36 << 1;	// controls the digital self-test
+var byte rc522_VersionReg				= 0x37 << 1;	// shows the software version
+var byte rc522_AnalogTestReg			= 0x38 << 1;	// controls the pins AUX1 and AUX2
+var byte rc522_TestDAC1Reg				= 0x39 << 1;	// defines the test value for TestDAC1
+var byte rc522_TestDAC2Reg				= 0x3A << 1;	// defines the test value for TestDAC2
+var byte rc522_TestADCReg				= 0x3B << 1;	// shows the value of ADC I and Q channels
+// 						  0x3C			// reserved for production tests
+// 						  0x3D			// reserved for production tests
+// 						  0x3E			// reserved for production tests
+// 						  0x3F			// reserved for production tests

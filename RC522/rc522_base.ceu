@@ -1,0 +1,194 @@
+
+var byte rc522_validBits = 0;
+var[9] byte rc522_uid = [0,1,2,3,4,5,6,7,8];
+var byte rc522_sak = 0;
+
+code/await PCD_WriteRegister(var byte reg, var byte value) -> none do
+    watching SPI_Transaction(1400000, SPI_MSBFIRST, SPI_MODE0, _, _) do
+        {digitalWrite(SS, LOW);}
+        await SPI_Transfer_8(reg);
+        await SPI_Transfer_8(value);
+        {digitalWrite(SS, HIGH);}
+        _DEBUG_V("set reg");
+    end
+end
+
+code/await PCD_Reset(none) -> none do 
+	await PCD_WriteRegister(outer.rc522_CommandReg, outer.rc522_PCD_SoftReset);	// Issue the SoftReset command.
+	// The datasheet does not mention how long the SoftRest command takes to complete.
+	// But the MFRC522 might have been in soft power-down mode (triggered by bit 4 of CommandReg) 
+	// Section 8.8.2 in the datasheet says the oscillator start-up time is the start up time of the crystal + 37,74μs. Let us be generous: 50ms.
+	await 50ms;
+end
+
+
+code/await PCD_WriteRegister2(var byte reg, var usize count, var&[] byte tx) -> none do
+    watching SPI_Transaction(1400000, SPI_MSBFIRST, SPI_MODE0, _, _) do
+        {digitalWrite(SS, LOW);}
+        await SPI_Transfer_8(reg);
+        var usize i = _;
+        loop i in [1 -> count] do
+            await SPI_Transfer_8(tx[i-1]);
+        end
+        {digitalWrite(SS, HIGH);}
+        _DEBUG_V("set reg");
+    end
+end
+
+code/await PCD_ReadRegister(var byte reg) -> byte do
+    var byte res = _;
+    watching SPI_Transaction(1400000, SPI_MSBFIRST, SPI_MODE0, _, _) do
+        {digitalWrite(SS, LOW);}
+        await SPI_Transfer_8(0x80 | reg);
+        res = await SPI_Transfer_8(_);
+        {digitalWrite(SS, HIGH);}
+    end
+    escape res;
+end
+
+code/await PCD_ReadRegister2(var byte reg, var usize len, var&[] byte buf, var usize offset) -> byte do
+	if len == 0 then escape 0; end
+    var byte res = _;
+    var	byte address = 0x80 | reg;
+	var byte index = 0;
+    watching SPI_Transaction(1400000, SPI_MSBFIRST, SPI_MODE0, _, _) do
+        {digitalWrite(SS, LOW);}
+		len = len - 1;
+        await SPI_Transfer_8(address);
+		if (offset > 0) then
+			// Create bit mask for bit positions rxAlign..7
+			var byte mask = (0xFF << (offset as byte)) & 0xFF;
+			// Read value and tell that we want to read the same address again.
+			var byte value = await SPI_Transfer_8(address);
+			// Apply mask to both current value of values[0] and the new data in value.
+			buf[0] = (buf[0] & ~mask) | (value & mask);
+			index = index + 1;	
+		end	
+
+		buf = [];
+		loop do
+			if index >= len then break; end 
+			var byte t = await SPI_Transfer_8(address);
+			buf = buf .. [t];
+			index = index + 1;	
+		end
+		var byte t = await SPI_Transfer_8(0);
+		buf = buf .. [t];
+        {digitalWrite(SS, HIGH);}
+        _DEBUG_V("read reg2");
+    end
+    escape res;
+end
+
+
+code/await PCD_CalculateCRC(var&[] byte dat, var usize len, var&[] byte res) -> byte do
+	await PCD_WriteRegister(outer.rc522_CommandReg, outer.rc522_PCD_Idle);		// Stop any active command.
+	await PCD_WriteRegister(outer.rc522_DivIrqReg, 0x04);				// Clear the CRCIRq interrupt request bit
+	await PCD_WriteRegister(outer.rc522_FIFOLevelReg, 0x80);			// FlushBuffer = 1, FIFO initialization
+	await PCD_WriteRegister2(outer.rc522_FIFODataReg, len, &dat);	// Write data to the FIFO
+	await PCD_WriteRegister(outer.rc522_CommandReg, outer.rc522_PCD_CalcCRC);		// Start the calculation
+	// Wait for the CRC calculation to complete. Each iteration of the while-loop takes 17.73μs.
+	// TODO check/modify for other architectures than Arduino Uno 16bit
+
+	// watching 89ms do
+	// 	loop do
+	// 		var byte n = await PCD_ReadRegister(outer.rc522_DivIrqReg);
+	// 		if n & 0x04 then
+	// 			res[0] = await PCD_ReadRegister(outer.rc522_CRCResultRegL);
+	// 			res[1] = await PCD_ReadRegister(outer.rc522_CRCResultRegH);
+	// 			escape STATUS_OK;
+	// 		end
+	// 	end
+	// end
+	var int i;
+	loop i in [1 -> 5000] do
+		var byte n = await PCD_ReadRegister(outer.rc522_DivIrqReg);
+		if (n & 0x04) != 0 then
+			res[0] = await PCD_ReadRegister(outer.rc522_CRCResultRegL);
+			res[1] = await PCD_ReadRegister(outer.rc522_CRCResultRegH);
+			escape STATUS_OK;
+		end
+	end
+
+	escape STATUS_TIMEOUT;
+
+
+	// par/or do
+	// 	await 89ms;
+	// 	escape STATUS_TIMEOUT;
+	// with
+	// 	loop do
+	// 		var byte n = await PCD_ReadRegister(DivIrqReg);
+	// 		res[0] = PCD_ReadRegister(CRCResultRegL);
+	// 		res[1] = PCD_ReadRegister(CRCResultRegH);
+	// 		escape STATUS_OK;
+	// 	end
+	// end
+end
+
+code/await PCD_AntennaOn(none) -> none do
+	_DEBUG_D("PCD_AntennaOn");
+    var byte value = await PCD_ReadRegister(outer.rc522_TxControlReg);
+	if ((value & 0x03) != 0x03) then
+		await PCD_WriteRegister(outer.rc522_TxControlReg, value | 0x03);
+    end
+end
+
+code/await PCD_Init(none)-> none do
+	_DEBUG_D("PCD_Init");
+    var bool hardReset = false;
+    {
+        pinMode(SS, OUTPUT);
+	    digitalWrite(SS, HIGH);
+    }
+    {
+        // First set the resetPowerDownPin as digital input, to check the MFrc522 power down mode.
+		pinMode(RST, INPUT);
+	
+		if (digitalRead(RST) == LOW) {	// The MFrc522 chip is in power down mode.
+			pinMode(RST, OUTPUT);		// Now set the resetPowerDownPin as digital output.
+			digitalWrite(RST, LOW);		// Make shure we have a clean LOW state.
+			delayMicroseconds(2);				// 8.8.1 Reset timing requirements says about 100ns. Let us be generous: 2μsl
+			digitalWrite(RST, HIGH);		// Exit power down mode. This triggers a hard reset.
+			// Section 8.8.2 in the datasheet says the oscillator start-up time is the start up time of the crystal + 37,74μs. Let us be generous: 50ms.
+			delay(50);
+			@hardReset = true;
+		}
+    }
+    if hardReset then
+        //TODO softReset()
+    end
+    // Reset baud rates
+	await PCD_WriteRegister(outer.rc522_TxModeReg, 0x00);
+	await PCD_WriteRegister(outer.rc522_RxModeReg, 0x00);
+	// Reset ModWidthReg
+	await PCD_WriteRegister(outer.rc522_ModWidthReg, 0x26);
+
+	// When communicating with a PICC we need a timeout if something goes wrong.
+	// f_timer = 13.56 MHz / (2*TPreScaler+1) where TPreScaler = [TPrescaler_Hi:TPrescaler_Lo].
+	// TPrescaler_Hi are the four low bits in TModeReg. TPrescaler_Lo is TPrescalerReg.
+	await PCD_WriteRegister(outer.rc522_TModeReg, 0x80);			// TAuto=1; timer starts automatically at the end of the transmission in all communication modes at all speeds
+	await PCD_WriteRegister(outer.rc522_TPrescalerReg, 0xA9);		// TPreScaler = TModeReg[3..0]:TPrescalerReg, ie 0x0A9 = 169 => f_timer=40kHz, ie a timer period of 25μs.
+	await PCD_WriteRegister(outer.rc522_TReloadRegH, 0x03);		// Reload timer with 0x3E8 = 1000, ie 25ms before timeout.
+	await PCD_WriteRegister(outer.rc522_TReloadRegL, 0xE8);
+	
+	await PCD_WriteRegister(outer.rc522_TxASKReg, 0x40);		// Default 0x00. Force a 100 % ASK modulation independent of the ModGsPReg register setting
+	await PCD_WriteRegister(outer.rc522_ModeReg, 0x3D);		// Default 0x3F. Set the preset value for the CRC coprocessor for the CalcCRC command to 0x6363 (ISO 14443-3 part 6.2.4)
+	await PCD_AntennaOn();						// Enable the antenna driver pins TX1 and TX2 (they were disabled by the reset)
+end
+
+ code/await PCD_ClearRegisterBitMask(var byte reg, var byte mask) -> none do 
+	_DEBUG_D("PCD_ClearRegisterBitMask");
+    var byte tmp;
+	tmp = await PCD_ReadRegister(reg);
+	await PCD_WriteRegister(reg, tmp & (~mask));		// clear bit mask
+ end
+
+
+code/await PCD_SetRegisterBitMask(var byte reg, var byte mask) -> none do 
+	_DEBUG_D("PCD_SetRegisterBitMask");
+    var byte tmp;
+	tmp = await PCD_ReadRegister(reg);
+	await PCD_WriteRegister(reg, tmp | mask);			// set bit mask
+end
+

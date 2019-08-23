@@ -1,0 +1,17 @@
+#include "i2c.ceu"
+#include "wclock.ceu"
+#include "usart.ceu"
+
+spawn USART_Init(9600);
+emit I2C(on, _);
+
+loop do
+    var[20] byte str = [];
+    await I2C_Master_Receive(&str, 8, 11);
+    var[20] byte str2 = []..str;
+    await USART_Tx(&str2);
+    var[20] byte buf = [].."I'm Master!\n";
+    await I2C_Master_Send(&buf, 8);
+    await 1s;
+end
+   

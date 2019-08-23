@@ -1,0 +1,183 @@
+#include "wclock.ceu"
+#include "out.ceu" 
+#include "ana_i2c.ceu"
+
+#define SDA OUT_05
+#define SCL OUT_04
+
+output high/low OUT_04;
+output high/low OUT_05;
+
+var byte? i2c_addr = _;
+var[I2C_BUF_MAX*] byte tx_buf;// transmit buffer
+var[I2C_BUF_MAX] byte rx_buf;// receive buffer
+
+code/await DelayHalf(none) -> none do
+    await 10ms;
+    //await 100ms;
+    //{delay(1);}
+end
+
+code/await Delay(none) -> none do
+    await 20ms;
+    //{delay(1);}
+end
+
+output int SDA_IN;
+output int SDA_OUT;
+
+output (int sda) SDA_IN do
+    {
+        pinMode(@sda, INPUT);
+    }
+end
+
+output (int sda) SDA_OUT do
+    {
+        pinMode(@sda, OUTPUT);
+    }
+end
+
+code/await Read_SDA(var int sda) -> bool do
+    var bool res = low;
+    {   
+        @res = digitalRead(@sda);
+    }
+    escape res;
+end
+
+code/await I2C_Start(none) -> none do 
+    emit SDA(high);
+    emit SCL(high);
+    await Delay();
+    emit SDA(low);
+    await DelayHalf();
+    emit SCL(low);
+    await Delay();
+end
+
+code/await I2C_Stop(none) -> none do 
+    emit SDA(low);
+    await DelayHalf();
+    emit SCL(high);
+    await Delay();
+    emit SDA(high);
+    await DelayHalf();
+end
+
+code/await I2C_Ack(none) -> none do
+    emit SDA(low);
+    await DelayHalf();
+    emit SCL(high);
+    await Delay();
+    emit SCL(low);
+    emit SDA(high);
+    await Delay();
+end
+
+code/await I2C_Nack(none) -> none do
+    emit SDA(high);
+    await DelayHalf();
+    emit SCL(high);
+    await Delay();
+    emit SCL(low);
+    emit SDA(high);
+    await Delay();
+end
+
+code/await I2C_Read(none) -> byte do
+    var byte res = 0;
+    var int i = _;
+    emit SDA_IN(5);
+    loop i in [0 -> 7] do
+        emit SCL(high);
+        await Delay();
+        var bool temp = await Read_SDA(5);
+        {@res = (@res << 1) | @temp;}
+        emit SCL(low);
+    end
+    emit SDA_OUT(5);
+    emit SDA(high);
+    await Delay();
+    escape res;
+end
+
+code/await I2C_Read_Ack(none) -> bool do
+    emit SDA_IN(5);
+    emit SCL(high);
+    await Delay();
+    var bool temp = await Read_SDA(5);
+    emit SCL(low);
+    emit SDA_OUT(5);
+    emit SDA(high);
+    await Delay();
+    escape not temp;
+end
+
+code/await I2C_Write(var byte b) -> none do
+    var bool value = _;
+    var int i = _;
+    loop i in [0 -> 7] do
+        {
+            @value = @b & (1 << (7 - @i));
+        }
+        emit SDA(value);
+        await DelayHalf();
+        emit SCL(high);
+        await Delay();
+        emit SCL(low);
+        if value then
+            await DelayHalf();
+            emit SDA(low);
+            await DelayHalf();
+        else
+            await Delay();
+        end
+    end
+end
+
+code/await I2C_Address(var byte addr, var bool read) -> none do
+    var byte t = _;
+    {
+        unsigned char temp;
+        if(@read){
+            temp = 1;
+        }else{
+            temp = 0;
+        }
+        @t = (@addr << 1) | temp;
+    };
+    await I2C_Write(t);
+end
+
+code/await I2C_Master_Send(var&[] byte buf, var byte address) -> bool do
+    await I2C_Address(address, false);
+    var bool res = await I2C_Read_Ack();
+    outer.tx_buf = []..buf;
+    var u8 i;
+    loop i in [1 -> $buf as u8] do
+        await I2C_Write(outer.tx_buf[0]);
+        var bool temp = await I2C_Read_Ack();
+        res = res and temp;
+        $outer.tx_buf = $outer.tx_buf - 1; 
+    end
+    escape res;
+end
+
+code/await I2C_Master_Receive(var&[] byte buf, var byte address, var usize len) -> bool do
+    await I2C_Address(address, true);
+    var bool res = await I2C_Read_Ack();
+    var u8 i;
+    outer.rx_buf = [];
+    loop i in [1 -> len as u8] do
+        var byte temp = await I2C_Read();
+        if len > i then
+            await I2C_Ack();
+        else
+            await I2C_Nack();
+        end
+        outer.rx_buf = outer.rx_buf .. [temp]; 
+    end
+    buf = []..outer.rx_buf;
+    escape res;
+end

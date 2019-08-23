@@ -1,0 +1,16 @@
+#define _DEBUG_D(x) {}//_Serial.println(x);_Serial.flush();
+#define _DEBUG_V(x) {}//_Serial.println(x);_Serial.flush();
+#define _DEBUG_I(x) _Serial.println(x);_Serial.flush();
+#define _TMP_DBG(x) _Serial.println(x);_Serial.flush();
+
+
+
+#define STATUS_OK 0
+#define STATUS_ERROR 1
+#define STATUS_COLLISION 2
+#define STATUS_TIMEOUT 3
+#define STATUS_NO_ROOM 4
+#define STATUS_INTERNAL_ERROR 5	// Internal error in the code. Should not happen ;-)
+#define STATUS_INVALID 6				// Invalid argument.
+#define STATUS_CRC_WRONG 7			// The CRC_A does not match
+#define STATUS_MIFARE_NACK 0xff	// A MIFARE PICC responded with NAK.

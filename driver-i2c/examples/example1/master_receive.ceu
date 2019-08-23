@@ -1,0 +1,36 @@
+#include "i2c.ceu"
+#include "wclock.ceu"
+
+/*
+Attemp read 4 byte from address 8 as a master
+Behavior: 
+ If slave send less data, lack data will be filled by 255.(Same as Wire)
+ If slave send more data, those will be ignore.
+ */ 
+
+emit I2C(on, _);
+_Serial.begin(9600);
+
+loop do
+        var[20] byte str = [];
+        await I2C_Master_Receive(&str, 8, 1);
+        var u8 i;
+        loop i in [1-> $str as u8] do
+            _Serial.println(str[i-1]);
+            _Serial.flush();
+        end
+        await 1s;
+end
+
+//As same as below
+
+// loop do
+//     emit I2C_MASTER_RECEIVE(8,4);
+//     await I2C_DONE;
+//     var u8 i;
+//     loop i in [1-> $rx_buf as u8] do
+//         _Serial.println(rx_buf[i-1]);
+//         _Serial.flush();
+//     end
+//     await 1s;
+// end

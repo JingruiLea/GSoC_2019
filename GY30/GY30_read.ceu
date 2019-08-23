@@ -1,0 +1,13 @@
+#include "GY30.ceu"
+
+_Serial.begin(9600);
+
+await GY30_Start();
+
+loop do
+  await GY30_Mode(GY30_CONTINUOUS_HIGH_1);
+  var u16 res = await GY30_Read();
+  _Serial.println(res);
+  _Serial.flush();
+  await 2s;
+end

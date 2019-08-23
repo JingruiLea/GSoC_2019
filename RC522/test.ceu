@@ -1,0 +1,295 @@
+#define SS 10
+#define RST 9
+
+#include "spi.ceu"
+
+#include "out.ceu"
+#include "wclock.ceu"
+
+#include "rc522_reg.ceu"
+#include "rc522_cmd.ceu"
+#include "rc522_def.ceu"
+#include "rc522_base.ceu"
+#include "rc522_comm.ceu"
+
+
+{pinMode(SS, OUTPUT);}
+
+_Serial.begin(9600);
+
+
+
+
+// void MFRC522::PCD_WriteRegister(	PCD_Register reg,	///< The register to write to. One of the PCD_Register enums.
+// 									byte count,			///< The number of bytes to write to the register
+// 									byte *values		///< The values to write. Byte array.
+// 								) {
+// 	SPI.beginTransaction(SPISettings(MFRC522_SPICLOCK, MSBFIRST, SPI_MODE0));	// Set the settings to work with SPI bus
+// 	digitalWrite(_chipSelectPin, LOW);		// Select slave
+// 	SPI.transfer(reg);						// MSB == 0 is for writing. LSB is not used in address. Datasheet section 8.1.2.3.
+// 	for (byte index = 0; index < count; index++) {
+// 		SPI.transfer(values[index]);
+// 	}
+// 	digitalWrite(_chipSelectPin, HIGH);		// Release slave again
+// 	SPI.endTransaction(); // Stop using the SPI bus
+// } // End PCD_WriteRegister()
+
+code/await PICC_IsNewCardPresent(none) -> bool do
+	_DEBUG_D("PICC_IsNewCardPresent")
+    var[2] byte buf = _;
+	await PCD_WriteRegister(outer.rc522_TxModeReg, 0x00);
+	await PCD_WriteRegister(outer.rc522_RxModeReg, 0x00);
+
+	await PCD_WriteRegister(outer.rc522_ModWidthReg, 0x26);
+
+	var byte result = await PICC_RequestA(&buf, 2);
+	escape ((result == STATUS_OK) or (result == STATUS_COLLISION));
+end
+
+code/await PICC_Select(var&[] byte uid, var usize uid_size, var byte validBits) -> byte do 
+	_DEBUG_D("PICC_Select")
+	var bool uidComplete = false;
+	var bool selectDone = false;
+	var bool useCascadeTag = _;
+	var byte cascadeLevel = 1;
+	var byte result = _;
+	var byte count = _;
+	var byte checkBit = _;
+	var byte index = 0;
+	var byte uidIndex = 0;					// The first index in uid->uidByte[] that is used in the current Cascade Level.
+	var byte currentLevelKnownBits = _;		// The number of known UID bits in the current Cascade Level.
+	var[9] byte buffer = [0,1,2,3,4,5,6,7,8];					// The SELECT/ANTICOLLISION commands uses a 7 byte standard frame + 2 bytes CRC_A
+	var byte bufferUsed = _;				// The number of bytes used in the buffer, ie the number of bytes to transfer to the FIFO.
+	var byte rxAlign = _;					// Used in BitFramingReg. Defines the bit position for the first bit received.
+	var byte txLastBits = _;				// Used in BitFramingReg. The number of valid bits in the last transmitted byte. 
+	var[9] byte responseBuffer = [0,1,2,3,4,5,6,7,8];
+	var byte responseLength = _;
+	
+	if $uid < uid_size then
+		escape STATUS_INVALID;
+	end
+
+	if (validBits > 80) then
+		escape STATUS_INVALID;
+	end
+
+	await PCD_ClearRegisterBitMask(outer.rc522_CollReg, 0x80);
+	loop do 
+		if uidComplete then break; end
+
+		if cascadeLevel == 1 then
+			buffer[0] = outer.rc522_PICC_CMD_SEL_CL1;
+			uidIndex = 0;
+			useCascadeTag = validBits != 0 and uid_size > 4;	// When we know that the UID has more than 4 bytes
+		else/if cascadeLevel == 2 then
+			buffer[0] = outer.rc522_PICC_CMD_SEL_CL2;
+			uidIndex = 3;
+			useCascadeTag = validBits != 0 and uid_size > 7;	// When we know that the UID has more than 7 bytes
+		else/if cascadeLevel == 3 then
+			buffer[0] = outer.rc522_PICC_CMD_SEL_CL3;
+			uidIndex = 6;
+			useCascadeTag = false;
+		else 
+			escape STATUS_INTERNAL_ERROR;
+		end
+
+		currentLevelKnownBits = validBits - (8 * uidIndex);
+		if (currentLevelKnownBits < 0) then
+			currentLevelKnownBits = 0;
+		end
+		index = 2; // destination index in buffer[]
+		if (useCascadeTag) then
+			buffer[index] = outer.rc522_PICC_CMD_CT;
+			index = index + 1;
+		end
+		var byte bytesToCopy = _;
+		{
+			@bytesToCopy = @currentLevelKnownBits / 8 + ((@currentLevelKnownBits % 8) ? 1 : 0);
+		}
+		 // The number of bytes needed to represent the known bits for this level.
+		if (bytesToCopy != 0) then
+			var byte maxBytes = 4; // Max 4 bytes in each Cascade Level. Only 3 left if we use the Cascade Tag
+			if useCascadeTag then maxBytes = 3; end
+			if bytesToCopy > maxBytes then
+				bytesToCopy = maxBytes;
+			end
+			var byte count;
+			loop count in [1 -> bytesToCopy] do
+				buffer[index] = uid[uidIndex + count -1];
+				index = index + 1;
+			end
+			// Now that the data has been copied we need to include the 8 bits in CT in currentLevelKnownBits
+			if (useCascadeTag) then
+				currentLevelKnownBits = currentLevelKnownBits + 8;
+			end
+			
+			// Repeat anti collision loop until we can transmit all UID bits + BCC and receive a SAK - max 32 iterations.
+			selectDone = false;
+		end
+		loop do
+			if selectDone then break; end
+
+			if (currentLevelKnownBits >= 32) then // All UID bits in this Cascade Level are known. This is a SELECT.
+				{Serial.print("SELECT: currentLevelKnownBits="); Serial.println(@currentLevelKnownBits, DEC);}
+				buffer[1] = 0x70; // NVB - Number of Valid Bits: Seven whole bytes
+				// Calculate BCC - Block Check Character
+				buffer[6] = buffer[2] ^ buffer[3] ^ buffer[4] ^ buffer[5];
+				// Calculate CRC_A
+				var[2] byte crc_res = [0, 0];
+				result = await PCD_CalculateCRC(&buffer, 7, &crc_res);
+				if (result != STATUS_OK) then
+					escape result;
+				end
+				buffer[7] = crc_res[0];
+				buffer[8] = crc_res[1];
+				txLastBits		= 0; // 0 => All 8 bits are valid.
+				bufferUsed		= 9;
+				// Store response in the last 3 bytes of buffer (BCC and CRC_A - not needed after tx)
+				responseBuffer	= [buffer[6], buffer[7], buffer[8]];
+				responseLength	= 3;
+			else  // This is an ANTICOLLISION.
+				{
+					Serial.print("ANTICOLLISION: currentLevelKnownBits=");
+					Serial.println(@currentLevelKnownBits, DEC);
+				}
+
+				txLastBits		= currentLevelKnownBits % 8;
+				count			= currentLevelKnownBits / 8;	// Number of whole bytes in the UID part.
+				index			= 2 + count;					// Number of whole bytes: SEL + NVB + UIDs
+				buffer[1]		= (index << 4) + txLastBits;	// NVB - Number of Valid Bits
+				{
+					@bufferUsed		= @index + ((@txLastBits) ? 1 : 0);
+				}
+				// Store response in the unused part of buffer
+				// responseBuffer	= &buffer[index];
+				responseLength	= ($buffer as byte) - index;
+			end
+			rxAlign = txLastBits;											// Having a separate variable is overkill. But it makes the next line easier to read.
+			await PCD_WriteRegister(outer.rc522_BitFramingReg, (rxAlign << 4) + txLastBits);	// RxAlign = BitFramingReg[6..4]. TxLastBits = BitFramingReg[2..0]
+
+			result = await PCD_TransceiveData(&buffer, bufferUsed as usize, &responseBuffer, responseLength as usize, txLastBits as usize, rxAlign as usize, false);
+			if currentLevelKnownBits >= 32 then
+				buffer[6] = responseBuffer[0];
+				buffer[7] = responseBuffer[1];
+				buffer[8] = responseBuffer[2];
+			else
+				// var usize tttt;
+				// loop tttt in [1 -> ($responseBuffer)] do
+				// 	_Serial.print("B:");
+				// 	_TMP_DBG(responseBuffer[tttt - 1])
+				// end
+				// _TMP_DBG(responseLength)
+
+				var byte count3;
+				loop count3 in [1 -> responseLength] do
+					buffer[count3 + index - 1] = responseBuffer[count3 - 1];
+				end
+			end
+			if result == STATUS_COLLISION then // More than one PICC in the field => collision.
+				var byte valueOfCollReg = await PCD_ReadRegister(outer.rc522_CollReg); // CollReg[7..0] bits are: ValuesAfterColl reserved CollPosNotValid CollPos[4:0]
+				if valueOfCollReg & 0x20 != 0 then // CollPosNotValid
+					escape STATUS_COLLISION; // Without a valid collision position we cannot continue
+				end
+				var byte collisionPos = valueOfCollReg & 0x1F; // Values 0-31, 0 means bit 32.
+				if collisionPos == 0 then
+					collisionPos = 32;
+				end
+				if collisionPos <= currentLevelKnownBits then // No progress - should not happen 
+					escape STATUS_INTERNAL_ERROR;
+				end
+				// Choose the PICC with the bit set.
+				currentLevelKnownBits	= collisionPos;
+				count			= currentLevelKnownBits % 8; // The bit to modify
+				checkBit		= (currentLevelKnownBits - 1) % 8;
+				{
+					@index			= 1 + (@currentLevelKnownBits / 8) + ((@count) ? 1 : 0); 
+				}// First byte is index 0.
+				buffer[index]	= buffer[index] | (1 << checkBit);
+			else/if (result != STATUS_OK) then
+				escape result;
+			else  // STATUS_OK
+				if (currentLevelKnownBits >= 32) then // This was a SELECT.
+					selectDone = true; // No more anticollision 
+					// var usize ttt;
+					// loop ttt in [1 -> $responseBuffer] do
+					// 	_TMP_DBG(":")
+					// 	_TMP_DBG(responseBuffer[ttt - 1])
+					// end
+					// We continue below outside the while.
+				else  // This was an ANTICOLLISION.
+					// We now have all 32 bits of the UID in this Cascade Level
+					currentLevelKnownBits = 32;
+					// Run loop again to do the SELECT.
+				end
+			end
+		end
+		
+		index = 2;
+		bytesToCopy = 4;
+		_TMP_DBG("bytesToCopy")
+		if buffer[2] == outer.rc522_PICC_CMD_CT then
+			index = 3;
+			bytesToCopy = 3;
+		end
+		var byte count2;
+		loop count2 in [1 -> bytesToCopy] do
+			uid[uidIndex + count2 - 1] = buffer[index];
+			_Serial.print(buffer[index]);
+			_Serial.print("；");
+			_Serial.flush();
+			index = index + 1;
+		end
+
+		
+		// Check response SAK (Select Acknowledge)
+		if (responseLength != 3 or txLastBits != 0) then // SAK must be exactly 24 bits (1 byte + CRC_A).
+			escape STATUS_ERROR;
+		end
+		// Verify CRC_A - do our own calculation and store the control in buffer[2..3] - those bytes are not needed anymore.
+		var[2] byte crc_res = [0,0];
+		result = await PCD_CalculateCRC(&responseBuffer, 1, &crc_res);
+		buffer[2] = crc_res[0];
+		buffer[3] = crc_res[1];
+		if (result != STATUS_OK) then
+			escape result;
+		end
+		if ((buffer[2] != responseBuffer[1]) or (buffer[3] != responseBuffer[2])) then
+			escape STATUS_CRC_WRONG;
+		end
+		if (responseBuffer[0] & 0x04 != 0) then // Cascade bit set - UID not complete yes
+			cascadeLevel = cascadeLevel + 1;
+		else
+			uidComplete = true;
+			outer.rc522_sak = responseBuffer[0];
+		end
+	end
+	escape STATUS_OK;
+end
+
+code/await PICC_ReadCardSerial(none) -> bool do
+	_DEBUG_D("PICC_ReadCardSerial")
+	var byte result = await PICC_Select(&outer.rc522_uid, 0, 0);
+	_TMP_DBG(result)
+	escape (result == STATUS_OK);
+end
+
+await PCD_Init();
+
+loop do 
+	var bool res = await PICC_IsNewCardPresent();
+	if res then
+		_DEBUG_I("new card");
+		res = await PICC_ReadCardSerial();
+		_DEBUG_I("Serial:");
+		// _DEBUG_I(res);
+		var usize i;
+		loop i in [1 -> $rc522_uid] do
+			_Serial.print(rc522_uid[i - 1]);
+			_Serial.print(", ");
+		end
+		_Serial.println();
+	else
+		_DEBUG_I("no new card")
+	end
+	await 2s;
+end

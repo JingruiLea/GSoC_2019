@@ -1,0 +1,57 @@
+#include "i2c.ceu"
+#include "wclock.ceu"
+
+#define GY30_LOW_ADDRESS 0x23
+#define GY30_HIGH_ADDRESS 0x5c
+
+#define GY30_CONTINUOUS_HIGH_1 0x10
+#define GY30_CONTINUOUS_HIGH_2 0x11
+#define GY30_CONTINUOUS_LOW 0x13
+#define GY30_ONCE_HIGH_1 0x20
+#define GY30_ONCE_HIGH_2 0x21
+#define GY30_ONCE_LOW 0x23
+
+#define IS_HIGH_MODE(x) 0x02 & x
+#define IS_ONCE_MODE(x) 0x20 & x
+
+emit I2C(on, _);
+var[1] byte gy30_command = [];
+var byte gy30_address = GY30_LOW_ADDRESS;
+var[2] byte gy30_return = [];
+ 
+var u8 gy30_stauts = _;
+
+code/await GY30_Send(var byte tx) -> none do
+    outer.gy30_command = [tx];
+    await I2C_Master_Send(&outer.gy30_command, outer.gy30_address as u8);
+end
+
+code/await GY30_Start(none) -> none do
+    await GY30_Send(0x01);
+end
+
+code/await GY30_Stop(none) -> none do
+    await GY30_Send(0x00);
+end
+
+code/await GY30_Mode(var byte mode) -> none do
+    await GY30_Send(mode);
+end
+
+code/await GY30_SetMT(var byte mt) -> none do
+    var byte temp = mt >> 5;
+    await GY30_Send(0x40 | temp);
+    temp = mt & 0x1F;
+    await GY30_Send(0x60 | temp); 
+end
+
+code/await GY30_Read(none) -> u16 do
+    await 200ms;
+    await I2C_Master_Receive(&outer.gy30_return, outer.gy30_address as u8, 2);
+    var u16 res = (((outer.gy30_return[0] << 8) as u16) + (outer.gy30_return[1] as u16));
+    escape res;
+end
+
+code/await GY30_Address(var byte address) -> none do
+    outer.gy30_address = address;
+end

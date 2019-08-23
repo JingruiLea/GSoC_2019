@@ -1,0 +1,23 @@
+#include "i2c.ceu"
+#include "wclock.ceu"
+
+emit I2C(on,_); 
+_Serial.begin(9600);
+
+/*
+Send data in buf to slave on address 8
+ */ 
+
+loop do
+    var[5] byte buf = [0,1,2,3,4];
+    await I2C_Master_Send(&buf, 8);
+    await 1s;
+end
+
+//As same as below
+// loop do
+//     tx_buf = [0,1,2,3,4]; 
+//     emit I2C_MASTER_SEND(8); 
+//     await I2C_DONE; 
+//     await 1s; 
+// end

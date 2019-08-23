@@ -1,0 +1,42 @@
+#include "i2c.ceu"
+#include "wclock.ceu"
+
+#define ADDR 0x50
+
+
+var[20] byte sub_addr = [0];
+var[1] byte inner_addr = [0];
+var[70] byte str = [].."Following the rules can make the world in order!";
+var[255*] byte eeprom_tx;
+var[255] byte eeprom_rx;
+emit I2C(on, _);
+
+
+code/await EEPROM_Write(var byte chip_addr, var&[] byte tx_buf) -> bool do
+    outer.eeprom_tx = []..tx_buf;
+    var u8 i;
+    var bool succeed;
+    loop i in [1 -> $tx_buf as u8] do
+        var[2] byte temp = [chip_addr + i - 1, outer.eeprom_tx[0]];
+        succeed = await I2C_Master_Send(&temp, ADDR);
+        $outer.eeprom_tx = $outer.eeprom_tx - 1;
+    end
+    await 1ms; //wait for write end
+    if succeed then
+        escape true;
+    else
+        escape false;
+    end
+end
+
+code/await EEPROM_Read(var&[] byte rx_buf, var byte chip_addr, var usize len) -> bool do
+    var[1] byte temp = [chip_addr];
+    await I2C_Master_Send(&temp, ADDR);
+    //if len < I2C_BUF_MAX then
+        await I2C_Master_Receive(&outer.eeprom_rx, ADDR, len);
+    //else
+    // end
+    rx_buf = []..outer.eeprom_rx;
+    escape true;
+end
+
